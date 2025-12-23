@@ -1,0 +1,41 @@
+general:
+  verbose: true
+  target: mswep
+  src: era5
+  model_type: vit
+
+training:
+  learning_rate: 1e-3
+  epochs: 100
+  batch_size: 128
+  loss_type: mse
+  norm_mode: channel # flatten gridbox channel global
+  early_stopping_max: 15
+
+vit:
+  emb_size: 128
+  patch_size: 4
+  num_layers: 4
+  num_heads: 4
+  dropout: 0.0
+
+region:
+  # north: lon[-10,0], lat[29,36] | south: lon[-10,0], lat[21,29] | all: lon[-18,0], lat[20.5,37]
+  # Adjust lon/lat below according to the desired region
+  lon_min: -10
+  lon_max: 0    
+  lat_min: 29 
+  lat_max: 36    
+
+dates:
+  train:
+    start: "1979-01-01"
+    end: "2005-12-31"
+  test:
+    start: "2006-01-01"
+    end: "2020-12-31"
+
+paths:
+  data_path: "/home/mohammad.elaabaribao/lustre/climat-um6p-st-iwri-7ksifkvwkuy/shared/TEAM/data/"
+  model_save_dir: "results/trained_models/"
+  eval_out_dir: "results/evaluation/"
