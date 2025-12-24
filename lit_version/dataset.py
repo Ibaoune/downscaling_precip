@@ -1,0 +1,197 @@
+import time
+import torch
+from torch.utils.data import Dataset
+import xarray as xr
+import numpy as np
+import matplotlib.pyplot as plt
+import yaml
+
+class DownscalingDataset(Dataset):
+    def __init__(
+        self,
+        mode="train",
+        variables=("z", "q", "u", "v", "t"),
+        levels=("1000", "850", "700", "500"),
+        transform=None,
+        target_transform=None,
+        return_metadata=False,
+        extent: list = [-10, 0, 29, 36],
+        data_path: list = None,
+        start_date: str = None,
+        end_date: str = None,
+    ):
+        print(f"[{mode.capitalize()} Dataset]")
+        self.extent = extent
+        self.data_path = data_path
+        self.start_date = start_date
+        self.end_date = end_date
+        self.mode = mode
+        
+        self.transform = transform
+        self.target_transform = target_transform
+        self.return_metadata = return_metadata
+
+        self.x_data = self._get_inputs(variables, levels)
+        self.n_channels = len(variables) * len(levels)
+        self.y_data = self._get_targets()
+        self.output_shape = (self.y_data.sizes["lat"], self.y_data.sizes["lon"])
+
+        assert self.x_data.sizes["time"] == self.y_data.sizes["time"], \
+            "Input and target time dimensions do not match"
+
+    def _get_inputs(self, variables, levels):
+
+        ds = xr.open_mfdataset(
+            self.data_path['input'],
+            combine="by_coords"
+        )
+        ds = self.slice_ds(ds)
+        # select levels
+        ds = ds.sel(level=levels)
+        # select variables
+        x_data = ds[variables]
+        # check time frequency, should be daily
+        freq = xr.infer_freq(x_data.time.to_index())
+        if freq != 'D':
+            if not freq.endswith('h'):
+                raise ValueError(f"Input data time frequency is {freq}, expected 'D'")
+            else:
+                # resample to daily
+                x_data = x_data.resample(time='1D').mean()
+        else:
+            print(f"Input data time frequency: {freq}")
+        self.time = x_data.time.values
+        self.lon = x_data.lon.values
+        self.lat = x_data.lat.values
+        # load() all data into memory, remove in case of GPU memory issues
+        return x_data.load()
+
+    def _get_targets(self):
+        ds = xr.open_mfdataset(
+        self.data_path["target"],
+        data_vars="minimal",
+        coords="minimal",
+        compat="override",
+        combine="nested",
+        concat_dim="time",
+        preprocess=rename_valid_time,
+        )
+
+        var = list(ds.data_vars.keys())[0]
+        
+        ds = self.slice_ds(ds)
+        # check time frequency, should be daily
+        freq = xr.infer_freq(ds.time.to_index())
+        if freq != 'D':
+            if not freq.endswith('h'):
+                raise ValueError(f"Target data time frequency is {freq}, expected 'D'")
+            else:
+                # resample to daily
+                print(f"Resampling target data from {freq} to daily.")
+                ds = ds.resample(time='1D').sum() # mean or sum ?
+        else:
+            print(f"Target data time frequency: {freq}")
+        # get precipitation unit
+        self.precip_unit = ds[var].attrs.get("units", None)
+        print(f"Target variable units: {self.precip_unit}")
+        y_data = ds[var]
+        # load() all data into memory, remove in case of GPU memory issues
+        return y_data.load()
+
+    def slice_ds(self, ds):
+        # standardise coordinates
+        ds = ds.rename(
+            {k: v for k, v in {
+                "latitude": "lat",
+                "longitude": "lon"
+            }.items() if k in ds.dims}
+        )
+        # sort by time in case of concatenation issues
+        ds = ds.sortby("time")
+        # Ensure descending latitude
+        if ds.lat[0] < ds.lat[-1]:
+            ds = ds.reindex(lat=list(reversed(ds.lat)))
+        # Adjust longitude coordinates to [-180, 180] if needed
+        lon = ds.lon.values
+        if not np.any(lon < 0) or np.any(lon > 180):
+            ds = ds.assign_coords(lon=(((ds.lon + 180) % 360) - 180))
+            ds = ds.sortby('lon')
+
+        # sel extent
+        ds = ds.sel(
+            lon=slice(self.extent[0], self.extent[1]),
+            lat=slice(self.extent[3], self.extent[2]),
+        )
+        return ds.sel(time=slice(self.start_date, self.end_date))
+    
+    def __len__(self):
+        return self.x_data.sizes["time"]
+
+    def __getitem__(self, idx):
+        # get input data
+        x_data_idx = self.x_data.isel(time=idx)
+        # Stack variables into a single array: (variable x level, lat, lon)
+        x_arr = np.concatenate(
+            [x_data_idx[var].values for var in x_data_idx.data_vars], 
+            axis=0)
+        x = torch.from_numpy(x_arr).float()
+        
+        y = torch.from_numpy(
+            self.y_data.isel(time=idx).values
+        ).float()
+
+        if self.transform:
+            x = self.transform(x)
+        if self.target_transform:
+            y = self.target_transform(y)
+
+        if not self.return_metadata:
+            return x, y
+
+        return x, y, {
+            "time": self.time[idx],
+            "lon": self.lon,
+            "lat": self.lat,
+        }
+
+def rename_valid_time(ds):
+    if "valid_time" in ds.dims:
+        return ds.rename({"valid_time": "time"})
+    return ds
+
+if __name__ == "__main__":
+    # Example usage
+    dataset = DownscalingDataset(
+        variables=["z", "q", "u", "v", "t"],
+        levels=[1000, 850, 700, 500],
+        extent=[-10, 0, 29, 36],
+        data_path={
+            "input": "data/predictors/er5_*.nc",
+            #"target": "data/predictands/MSWP_1979_2014.nc"
+            "target": "data/predictors/era5_pr/ERA_1979_2014.nc"
+        },
+        start_date="2000-01-01",
+        end_date="2010-12-31",
+        return_metadata=False,
+    )
+    # or using config file
+    # mode = "test"
+    # with open('configs/config_1.yaml', 'r') as f:        
+    #     config = yaml.safe_load(f)
+    # kwargs = config['data']['common_kwargs']
+    # kwargs.update(config['data'][mode])
+    # dataset = DownscalingDataset(**kwargs)
+
+    print(f"Dataset length: {len(dataset)}")
+    x, y = dataset[10]
+    print(f"Input shape: {x.shape}, Target shape: {y.shape}")
+    # plot 
+    plt.subplot(1, 2, 1)
+    plt.imshow(x[-5].numpy(), cmap='viridis', origin='upper')
+    plt.title('Input Variable (Channel 0)')
+    plt.colorbar()
+    plt.subplot(1, 2, 2)
+    plt.imshow(y.numpy(), cmap='viridis', origin='upper')
+    plt.title('Target Variable')
+    plt.colorbar()
+    plt.savefig('sample_plot.png')
