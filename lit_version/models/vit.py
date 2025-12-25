@@ -96,6 +96,7 @@ class DownscalingViT(nn.Module):
 
         # Décodeur final
         self.decoder = UpsamplingDecoder(emb_size, patch_size, out_channels)
+        self.out_ch = out_channels
 
     def forward(self, x):
         # x : (batch_size, in_channels, height, width)
@@ -112,4 +113,13 @@ class DownscalingViT(nn.Module):
         # Reconstruction finale de l’image
         x = self.decoder(encoded_patches, h_patches, w_patches,
                  target_h=self.output_shape[0], target_w=self.output_shape[1])
+        # if out_ch == 3, apply activation functions
+        if self.out_ch == 3:
+            # First channel: ocurrence (sigmoid)
+            x1 = torch.sigmoid(x[:, 0:1, :, :])
+            # Second channel: shape_parameter (exp)
+            x2 = torch.exp(x[:, 1:2, :, :])
+            # Third channel: scale_parameter (exp)
+            x3 = torch.exp(x[:, 2:3, :, :])
+            x = torch.cat([x1, x2, x3], dim=1)
         return x

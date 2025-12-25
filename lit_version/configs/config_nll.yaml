@@ -2,7 +2,7 @@ training:
   learning_rate: 0.001
   epochs: 2
   batch_size: 128
-  loss_type: mse
+  loss_type: "nll" # options: "mse", "mae", "nll"
   weights_dir: "weights/"
   eval_out_dir: "results/evaluation/"
 
@@ -18,7 +18,8 @@ data:
   test:
     mode: "test"
     start_date: "2011-01-01"
-    end_date: "2020-12-31"
+    end_date: "2014-12-31"
+    return_date: true
   common_kwargs:
     variables: ["z", "q", "u", "v", "t"]
     levels: [1000, 850, 700, 500]
@@ -26,10 +27,13 @@ data:
     data_path:
       input: "data/predictors/er5_*.nc"
       target: "data/predictands/MSWP_1979_2014.nc"
+    input_ds_name: "ERA5"
+    target_ds_name: "MSWP"
     input_normalize: "per_channel" # options: "per_channel", "per_day", "global", null
-    target_normalize: null # options: "global" or null
+    target_normalize: "global" # options: "global" or null
+    log_transform: false
     stats_path: "data_stats/"
-    return_metadata: false
+    return_date: false
 
 models:
   vit:

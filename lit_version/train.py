@@ -1,3 +1,4 @@
+import pandas as pd
 from lit_module import LitDataModule, LitModule
 from models.vit import DownscalingViT
 from models.unet import UNet
@@ -9,17 +10,87 @@ import argparse
 import torch
 import os
 import yaml
+import numpy as np
+import xarray as xr
+from datetime import datetime
+
+def inference(model_module, data_loader=None, train_loader=None, output_dir='results'):
+    model_module.eval()
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model_module.to(device)
+    # check criterion instance, if nll-bg, compute expected value
+    is_nll = isinstance(model_module.criterion, BernoulliGammaLoss)
+    with torch.no_grad():
+        all_y_pred = []
+        all_y_true = []
+        all_dates = []
+
+        for batch in data_loader:
+            x, y, date = batch
+            x = x.to(device)
+            y_true = y.to(device)
+            y_pred = model_module(x)
+            if is_nll:
+                ocurrence = torch.sigmoid(y_pred[:, 0, :, :])
+                shape_parameter = torch.exp(y_pred[:, 1, :, :])
+                scale_parameter = torch.exp(y_pred[:, 2, :, :])
+                # Expected value of Bernoulli-Gamma
+                y_pred = ocurrence * (shape_parameter * scale_parameter)
+            # Denormalize if needed (inludes inverse log-transform)
+            y_pred_denorm = train_loader.dataset.denormalize(y_pred, data_type="y")
+            y_true_denorm = train_loader.dataset.denormalize(y_true, data_type="y")
+            
+            # Gather predictions
+            all_y_pred.append(y_pred_denorm.cpu().numpy())
+            all_y_true.append(y_true_denorm.cpu().numpy())
+            all_dates.extend(date)
+        
+        # Concatenate all batches
+        y_pred_all = np.concatenate(all_y_pred, axis=0)
+        y_true_all = np.concatenate(all_y_true, axis=0)
+        all_dates = pd.to_datetime(all_dates)
+        # Create xarray Dataset
+        ds = xr.Dataset({
+            'precipitation': (['time', 'lat', 'lon'], y_pred_all.squeeze())}, 
+            coords={'time': all_dates,
+                    'lat': data_loader.dataset.lat,
+                    'lon': data_loader.dataset.lon,
+            }
+        )
+        start_year = all_dates[0].year
+        end_year = all_dates[-1].year
+        # Save to NetCDF
+        output_path = os.path.join(output_dir, f"inference_pred_{start_year}-{end_year}.nc")
+        os.makedirs(output_dir, exist_ok=True)
+        ds.to_netcdf(output_path)#, encoding={'complevel': 5})
+        print(f"Saved predictions to {output_path}")
+
+        # Also save ground truth
+        ds_true = xr.Dataset({
+            'precipitation': (['time', 'lat', 'lon'], y_true_all.squeeze())}, 
+            coords={'time': all_dates,
+                    'lat': data_loader.dataset.lat,
+                    'lon': data_loader.dataset.lon,
+            }
+        )
+        output_true_path = os.path.join(output_dir, f"inference_truth_{start_year}-{end_year}.nc")
+        ds_true.to_netcdf(output_true_path)#, encoding={'complevel': 5})
+        print(f"Saved ground truth to {output_true_path}")
+            
+
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a downscaling model using PyTorch Lightning")
-    # example usage: python train.py --config config_1.yaml --model unet
+    # example usage: python train.py --config config_mse.yaml --model unet
     parser.add_argument("--config", type=str, required=True, help="The configuration YAML file")
     parser.add_argument("--model", type=str, required=True, help="Model to use: 'unet', 'vit'...")
 
     parser.add_argument("--inference", action="store_true", help="Run in inference mode")
     parser.add_argument("--resume", action="store_true", help="Resume training from last checkpoint")
     args = parser.parse_args()
-
+    
     # Load configuration
     with open(os.path.join("configs", args.config), 'r') as f:
         config = yaml.safe_load(f)
@@ -39,6 +110,9 @@ if __name__ == "__main__":
     loss_name = config['training']['loss_type']
     if loss_name == 'mse':
         criterion = torch.nn.MSELoss()
+        out_ch = 1
+    elif loss_name == 'mae':
+        criterion = torch.nn.L1Loss()
         out_ch = 1
     elif loss_name == 'nll':
         criterion = BernoulliGammaLoss()
@@ -114,7 +188,10 @@ if __name__ == "__main__":
                 learning_rate=config['training']['learning_rate'],
             )
             # implement inference logic here
-            # inference(model_module, test_loader, ...)
+            inference(model_module, 
+                      test_loader, 
+                      train_loader, 
+                      os.path.join(config['training']['eval_out_dir'], exp_name))
         else:
             raise FileNotFoundError(f"No checkpoint found at {last_checkpoint_path} for inference.")
     else:
