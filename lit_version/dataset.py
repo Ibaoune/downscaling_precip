@@ -1,3 +1,4 @@
+import os
 import time
 import torch
 from torch.utils.data import Dataset
@@ -12,13 +13,14 @@ class DownscalingDataset(Dataset):
         mode="train",
         variables=("z", "q", "u", "v", "t"),
         levels=("1000", "850", "700", "500"),
-        transform=None,
-        target_transform=None,
+        input_normalize=None,
+        target_normalize=None,
         return_metadata=False,
         extent: list = [-10, 0, 29, 36],
         data_path: list = None,
         start_date: str = None,
         end_date: str = None,
+        stats_path: str = "data_stats/",
     ):
         print(f"[{mode.capitalize()} Dataset]")
         self.extent = extent
@@ -26,21 +28,69 @@ class DownscalingDataset(Dataset):
         self.start_date = start_date
         self.end_date = end_date
         self.mode = mode
-        
-        self.transform = transform
-        self.target_transform = target_transform
+        self.stats_path = stats_path
+        os.makedirs(self.stats_path, exist_ok=True)
+        self.input_normalize = input_normalize
+        self.target_normalize = target_normalize
         self.return_metadata = return_metadata
-
+        # get input data
         self.x_data = self._get_inputs(variables, levels)
+        self.x_mean, self.x_std = self._compute_stats(
+            self.x_data, data_type="x", 
+            normalization=self.input_normalize
+            )
         self.n_channels = len(variables) * len(levels)
+        # get target data
         self.y_data = self._get_targets()
+        self.y_mean, self.y_std = self._compute_stats(
+            self.y_data, data_type="y", 
+            normalization=self.target_normalize
+            )
         self.output_shape = (self.y_data.sizes["lat"], self.y_data.sizes["lon"])
 
         assert self.x_data.sizes["time"] == self.y_data.sizes["time"], \
             "Input and target time dimensions do not match"
 
-    def _get_inputs(self, variables, levels):
+    def _compute_stats(self, ds, data_type="x", normalization=None):
+        if normalization is None:
+            return 0, 1
+        if self.mode == "train":
+            if normalization == "per_channel":
+                # stats per var and level 
+                mean_ds = np.concatenate(
+                    [ds[var].mean(dim=("time", "lat", "lon")).values for var in ds.data_vars], 
+                    axis=0)[:, np.newaxis, np.newaxis]
+                std_ds = np.concatenate(
+                    [ds[var].std(dim=("time", "lat", "lon")).values for var in ds.data_vars], 
+                    axis=0)[:, np.newaxis, np.newaxis]
+            else:
+                mean_ds, std_ds = ds.mean().values, ds.std().values
+            # save stats as npy
+            np.savez(
+                os.path.join(self.stats_path, f"{data_type}_stats.npz"),
+                mean=mean_ds, std=std_ds)
+            print(f"Saved training data stats to {self.stats_path}")
+            return mean_ds, std_ds
+        else:
+            # load stats
+            stats = np.load(os.path.join(self.stats_path, f"{data_type}_stats.npz"), allow_pickle=True)
+            print(f"Loading data stats from {self.stats_path}")
+            return stats['mean'], stats['std']
 
+    def _denormalize(self, data, data_type="x"):
+        if data_type == "x":
+            mean = self.x_mean
+            std = self.x_std
+        else:
+            mean = self.y_mean
+            std = self.y_std
+        if isinstance(mean, np.ndarray):
+            mean = torch.from_numpy(mean).float()
+        if isinstance(std, np.ndarray):
+            std = torch.from_numpy(std).float()
+        return data * (std + 1e-8) + mean
+
+    def _get_inputs(self, variables, levels):
         ds = xr.open_mfdataset(
             self.data_path['input'],
             combine="by_coords"
@@ -140,10 +190,15 @@ class DownscalingDataset(Dataset):
             self.y_data.isel(time=idx).values
         ).float()
 
-        if self.transform:
-            x = self.transform(x)
-        if self.target_transform:
-            y = self.target_transform(y)
+        if self.input_normalize == "per_day":
+            # per day per channel normalization
+            mean = x.mean(dim=(1,2), keepdim=True)
+            std  = x.std(dim=(1,2), keepdim=True)
+            x = (x - mean) / (std + 1e-8)
+        else:
+            x = (x - self.x_mean) / (self.x_std + 1e-8)
+        
+        y = (y - self.y_mean) / (self.y_std + 1e-8)
 
         if not self.return_metadata:
             return x, y
@@ -154,6 +209,8 @@ class DownscalingDataset(Dataset):
             "lat": self.lat,
         }
 
+
+
 def rename_valid_time(ds):
     if "valid_time" in ds.dims:
         return ds.rename({"valid_time": "time"})
@@ -161,26 +218,26 @@ def rename_valid_time(ds):
 
 if __name__ == "__main__":
     # Example usage
-    dataset = DownscalingDataset(
-        variables=["z", "q", "u", "v", "t"],
-        levels=[1000, 850, 700, 500],
-        extent=[-10, 0, 29, 36],
-        data_path={
-            "input": "data/predictors/er5_*.nc",
-            #"target": "data/predictands/MSWP_1979_2014.nc"
-            "target": "data/predictors/era5_pr/ERA_1979_2014.nc"
-        },
-        start_date="2000-01-01",
-        end_date="2010-12-31",
-        return_metadata=False,
-    )
+    # dataset = DownscalingDataset(
+    #     variables=["z", "q", "u", "v", "t"],
+    #     levels=[1000, 850, 700, 500],
+    #     extent=[-10, 0, 29, 36],
+    #     data_path={
+    #         "input": "data/predictors/er5_*.nc",
+    #         #"target": "data/predictands/MSWP_1979_2014.nc"
+    #         "target": "data/predictors/era5_pr/ERA_1979_2014.nc"
+    #     },
+    #     start_date="2000-01-01",
+    #     end_date="2010-12-31",
+    #     return_metadata=False,
+    # )
     # or using config file
-    # mode = "test"
-    # with open('configs/config_1.yaml', 'r') as f:        
-    #     config = yaml.safe_load(f)
-    # kwargs = config['data']['common_kwargs']
-    # kwargs.update(config['data'][mode])
-    # dataset = DownscalingDataset(**kwargs)
+    mode = "train"
+    with open('configs/config_1.yaml', 'r') as f:        
+        config = yaml.safe_load(f)
+    kwargs = config['data']['common_kwargs']
+    kwargs.update(config['data'][mode])
+    dataset = DownscalingDataset(**kwargs)
 
     print(f"Dataset length: {len(dataset)}")
     x, y = dataset[10]
