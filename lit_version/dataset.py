@@ -67,13 +67,13 @@ class DownscalingDataset(Dataset):
                 mean_ds, std_ds = ds.mean().values, ds.std().values
             # save stats as npy
             np.savez(
-                os.path.join(self.stats_path, f"{data_type}_stats.npz"),
+                os.path.join(self.stats_path, f"{data_type}_stats_{normalization}.npz"),
                 mean=mean_ds, std=std_ds)
             print(f"Saved training data stats to {self.stats_path}")
             return mean_ds, std_ds
         else:
             # load stats
-            stats = np.load(os.path.join(self.stats_path, f"{data_type}_stats.npz"), allow_pickle=True)
+            stats = np.load(os.path.join(self.stats_path, f"{data_type}_stats_{normalization}.npz"), allow_pickle=True)
             print(f"Loading data stats from {self.stats_path}")
             return stats['mean'], stats['std']
 
