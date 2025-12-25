@@ -21,6 +21,8 @@ class DownscalingDataset(Dataset):
         start_date: str = None,
         end_date: str = None,
         stats_path: str = "data_stats/",
+        input_ds_name: str = "era5",
+        target_ds_name: str = "mswp",
     ):
         print(f"[{mode.capitalize()} Dataset]")
         self.extent = extent
@@ -33,25 +35,31 @@ class DownscalingDataset(Dataset):
         self.input_normalize = input_normalize
         self.target_normalize = target_normalize
         self.return_metadata = return_metadata
+        self.input_ds_name = input_ds_name
+        self.target_ds_name = target_ds_name
         # get input data
         self.x_data = self._get_inputs(variables, levels)
         self.x_mean, self.x_std = self._compute_stats(
             self.x_data, data_type="x", 
-            normalization=self.input_normalize
+            normalization=self.input_normalize,
+            ds_name=self.input_ds_name
             )
         self.n_channels = len(variables) * len(levels)
         # get target data
         self.y_data = self._get_targets()
         self.y_mean, self.y_std = self._compute_stats(
             self.y_data, data_type="y", 
-            normalization=self.target_normalize
+            normalization=self.target_normalize,
+            ds_name=self.target_ds_name
             )
         self.output_shape = (self.y_data.sizes["lat"], self.y_data.sizes["lon"])
 
         assert self.x_data.sizes["time"] == self.y_data.sizes["time"], \
             "Input and target time dimensions do not match"
 
-    def _compute_stats(self, ds, data_type="x", normalization=None):
+    def _compute_stats(self, ds, data_type="x", normalization=None, ds_name=None):
+        stats_file = os.path.join(self.stats_path, 
+                                  f"{data_type}_stats_{normalization}_{ds_name}.npz")
         if normalization is None:
             return 0, 1
         if self.mode == "train":
@@ -66,14 +74,12 @@ class DownscalingDataset(Dataset):
             else:
                 mean_ds, std_ds = ds.mean().values, ds.std().values
             # save stats as npy
-            np.savez(
-                os.path.join(self.stats_path, f"{data_type}_stats_{normalization}.npz"),
-                mean=mean_ds, std=std_ds)
+            np.savez(stats_file, mean=mean_ds, std=std_ds)
             print(f"Saved training data stats to {self.stats_path}")
             return mean_ds, std_ds
         else:
             # load stats
-            stats = np.load(os.path.join(self.stats_path, f"{data_type}_stats_{normalization}.npz"), allow_pickle=True)
+            stats = np.load(stats_file, allow_pickle=True)
             print(f"Loading data stats from {self.stats_path}")
             return stats['mean'], stats['std']
 
