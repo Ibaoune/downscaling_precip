@@ -27,7 +27,7 @@ tensorboard --logdir=logs
 ```
 
 #### Usage, inference:
-After training, the model can be used for inference. The predictions and ground truth will be saved in a directory as specified in the configuration file. Ground truth and predictions are saved in NetCDF format for later analysis.
+After training, the model can be used for inference. The predictions and ground truth will be saved in a directory as specified in the configuration file in NetCDF files for later analysis.
 ```bash
 python train.py --config config_mse.yaml --model unet --inference
 ```
