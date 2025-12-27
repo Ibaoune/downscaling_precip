@@ -142,12 +142,12 @@ class DownscalingViT(nn.Module):
         patches, h_patches, w_patches = self.patch_embedding(x)
 
         num_patches = patches.shape[1]  # nb_patchs = h_patches × w_patches
-        device = patches.device  # GPU ✅ s'assure que l'embedding est sur le bon device
+        device = patches.device  # GPU s'assure que l'embedding est sur le bon device
 
         if (self.positional_embedding is None or
                 self.positional_embedding.shape[1] != num_patches):
             self.positional_embedding = nn.Parameter(
-                torch.randn(1, num_patches, patches.shape[2], device=device)  # GPU ✅
+                torch.randn(1, num_patches, patches.shape[2], device=device)  # GPU 
             )
 
         # Ajoute l’embedding de position aux patchs
