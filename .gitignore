@@ -1,1 +1,7 @@
 vit/results/
+
+lit_version/data
+lit_version/weights
+lit_version/logs
+lit_version/data_stats*
+lit_version/results
