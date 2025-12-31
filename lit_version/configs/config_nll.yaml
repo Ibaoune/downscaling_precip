@@ -25,8 +25,10 @@ data:
     levels: [1000, 850, 700, 500]
     extent: [-10, 0, 29, 36]
     data_path:
-      input: "/home/mohammad.elaabaribao/lustre/climat-um6p-st-iwri-7ksifkvwkuy/shared/TEAM/data/era5/all_Mor/merged_levels/*.nc"
-      target: "/home/mohammad.elaabaribao/lustre/climat-um6p-st-iwri-7ksifkvwkuy/shared/TEAM/data/mswep/all_Mor/mswep_1979_2020.nc"
+      # input: "/home/mohammad.elaabaribao/lustre/climat-um6p-st-iwri-7ksifkvwkuy/shared/TEAM/data/era5/all_Mor/merged_levels/*.nc"
+      # target: "/home/mohammad.elaabaribao/lustre/climat-um6p-st-iwri-7ksifkvwkuy/shared/TEAM/data/mswep/all_Mor/mswep_1979_2020.nc"
+      input: "data/predictors/er5_*.nc"
+      target: "data/predictands/MSWP_1979_2014.nc"      
     input_ds_name: "ERA5"
     target_ds_name: "MSWP"
     input_normalize: null # options: "per_channel", "per_day", "global", null
