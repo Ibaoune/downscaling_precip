@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
 
 class UNet(nn.Module):
     def __init__(self, in_channels, out_channels=1, init_features=64, output_shape=(70, 100)):
@@ -62,14 +62,13 @@ class UNet(nn.Module):
         dec1 = self.decoder1(dec1)
         x = self.conv(dec1)
         
-        # Insure Bernoulli-Gamma outputs are in correct ranges
         if self.out_ch == 3:
             # First channel: ocurrence (sigmoid)
             x1 = torch.sigmoid(x[:, 0:1, :, :])
-            # Second channel: shape_parameter (exp)
-            x2 = torch.exp(x[:, 1:2, :, :])
-            # Third channel: scale_parameter (exp)
-            x3 = torch.exp(x[:, 2:3, :, :])
+            # Second channel: shape_parameter (softplus)
+            x2 = F.softplus(x[:, 1:2, :, :])
+            # Third channel: scale_parameter (softplus)
+            x3 = F.softplus(x[:, 2:3, :, :])
             x = torch.cat([x1, x2, x3], dim=1)
         return x
     

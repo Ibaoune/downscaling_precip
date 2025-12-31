@@ -69,8 +69,8 @@ class UpsamplingDecoder(nn.Module):
         x = self.projection(x)
 
         if target_h is not None and target_w is not None:
-            pad_h = target_h - x.shape[2]
-            pad_w = target_w - x.shape[3]
+            pad_h = target_h - x.shape[-2]
+            pad_w = target_w - x.shape[-1]
             if pad_h > 0 or pad_w > 0:
                x = F.pad(x, (0, pad_w, 0, pad_h))
         return x
@@ -100,7 +100,6 @@ class DownscalingViT(nn.Module):
 
     def forward(self, x):
         # x : (batch_size, in_channels, height, width)
-
         # Redimensionne l’entrée à la taille cible par interpolation nearest neighbor
         x = nn.functional.interpolate(x, size=self.output_shape, mode='bilinear', align_corners=False)
 
@@ -117,9 +116,9 @@ class DownscalingViT(nn.Module):
         if self.out_ch == 3:
             # First channel: ocurrence (sigmoid)
             x1 = torch.sigmoid(x[:, 0:1, :, :])
-            # Second channel: shape_parameter (exp)
-            x2 = torch.exp(x[:, 1:2, :, :])
-            # Third channel: scale_parameter (exp)
-            x3 = torch.exp(x[:, 2:3, :, :])
+            # Second channel: shape_parameter (softplus)
+            x2 = F.softplus(x[:, 1:2, :, :])
+            # Third channel: scale_parameter (softplus)
+            x3 = F.softplus(x[:, 2:3, :, :])
             x = torch.cat([x1, x2, x3], dim=1)
         return x

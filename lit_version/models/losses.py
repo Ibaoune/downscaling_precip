@@ -1,35 +1,62 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import warnings
 
 class BernoulliGammaLoss(nn.Module):
-    def __init__(self):
-        super(BernoulliGammaLoss, self).__init__()
-        self.eps = 1e-6
-        self.tol = 1e-5
-        
-    def forward(self, y_pred, y_true):
-        ocurrence = y_pred[:, 0, :, :].clamp(self.tol, 1-self.tol)
-        shape_parameter = y_pred[:, 1, :, :].clamp(-5, 5).clamp(self.tol, 1e3)
-        scale_parameter = y_pred[:, 2, :, :].clamp(-5, 5).clamp(self.tol, 1e3)
-        bool_rain = torch.where(y_true > 0, torch.tensor(1.0), torch.tensor(0.0))
-        # check if any of these tensors contain NaN values
-        if torch.isnan(ocurrence).any():
-            print("NaN values found in ocurrence tensor")
-        if torch.isnan(shape_parameter).any():
-            print("NaN values found in shape_parameter tensor")
-        if torch.isnan(scale_parameter).any():
-            print("NaN values found in scale_parameter tensor")
-        #print(f"Valeur de epsilon : {epsilon}")
+    def __init__(self, reduction="mean", eps=1e-3):
+        super().__init__()
+        self.reduction = reduction
+        self.eps = eps
 
-        # Calcul de la perte en combinant les différentes parties
-        loss = -torch.mean(
-                (1 - bool_rain) * torch.log(1 - ocurrence + self.eps) +  # (1 - y) * log(1 - p)
-                bool_rain * (torch.log(ocurrence + self.eps) +           # + y * log(p)
-                (shape_parameter - 1) * torch.log(y_true + self.eps) -   # + y * (shape - 1) * log(y)
-                shape_parameter * torch.log(scale_parameter + self.eps) - # - y * shape * log(scale)
-                torch.lgamma(shape_parameter + self.eps) -               # - y * log(Gamma(shape))
-                y_true / (scale_parameter + self.eps))                   # - y * (y / scale)
-            )
-        print(f"Current loss: {loss.item()}")
-        return loss
+    def forward(self, pred, y):
+        """
+        pi:    (B, ...) Bernoulli probability, in (0,1)
+        alpha: (B, ...) Gamma shape > 0
+        beta:  (B, ...) Gamma scale > 0
+        y:     (B, ...) target values, either 0 or strictly > 0
+        """
+        pi = pred[:, 0]
+        alpha = pred[:, 1]
+        beta = pred[:, 2]
+
+        if torch.any(y < - self.eps):
+            warnings.warn(
+                "Some target values are negative, check if any normalisation is applied"
+                f"min={y.min()}, max={y.max()}", UserWarning)
+        #  Runtime checks with warnings
+        if torch.any((pi <= 0) | (pi >= 1)):
+            warnings.warn(
+                "Some pi values are outside (0,1). They will be clamped."
+                f"min={pi.detach().min().item()}, max={pi.detach().max().item()}", UserWarning)
+            pi = torch.clamp(pi, 1e-6, 1 - self.eps)
+        if torch.any(alpha <= 0):
+            warnings.warn(
+                "Some alpha values are <= 0. They will be clamped."
+                f"min={alpha.detach().min().item()}, max={alpha.detach().max().item()}", UserWarning)
+            alpha = torch.clamp(alpha, 0, None)
+        if torch.any(beta <= 1e-6):
+            warnings.warn(
+                f"Some beta values are <= {1e-6}. They will be clamped."
+                f"min={beta.detach().min().item()}, max={beta.detach().max().item()}", UserWarning)
+            beta = torch.clamp(beta, self.eps, None)
+
+        #  Case y == 0
+        loss_zero = -torch.log1p(-pi)
+        loss_pos = (
+            - torch.log(pi)
+            + torch.lgamma(alpha)
+            + alpha * torch.log(beta)
+            - (alpha - 1) * torch.log(torch.clamp(y, min=self.eps))
+            + y / beta
+        )
+
+        occurence_mask = (y > self.eps).float()
+        loss = (1 - occurence_mask) * loss_zero + occurence_mask * loss_pos
+
+        if self.reduction == "mean":
+            return loss.mean()
+        elif self.reduction == "sum":
+            return loss.sum()
+        else:
+            return loss
