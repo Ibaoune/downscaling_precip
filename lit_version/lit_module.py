@@ -62,14 +62,14 @@ class LitModule(pl.LightningModule):
         x, y = batch
         y_hat = self(x)
         loss = self.criterion(y_hat.squeeze(1), y)
-        self.log('train_loss', loss)
+        self.log('train_loss', loss, prog_bar=True, on_epoch=True)
         return loss
     
     def validation_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self(x)
         loss = self.criterion(y_hat.squeeze(1), y)
-        self.log('val_loss', loss)
+        self.log('val_loss', loss, prog_bar=True, on_epoch=True)
         # add metrics here if needed
         return loss
 

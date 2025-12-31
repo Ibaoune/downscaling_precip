@@ -159,6 +159,10 @@ class DownscalingDataset(Dataset):
             lon=slice(self.extent[0], self.extent[1]),
             lat=slice(self.extent[3], self.extent[2]),
         )
+        # from (level, time, ...) to (time, level, ..)
+        if "level" in ds.dims:
+            ds = ds.transpose("time", "level", "lat", "lon")
+        print(f"Dataset dimensions: {ds.dims}")
         return ds.sel(time=slice(self.start_date, self.end_date))
     
     def _precip_unit_conversion(self, ds):
