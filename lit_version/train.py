@@ -92,17 +92,6 @@ if __name__ == "__main__":
     with open(os.path.join("configs", args.config), 'r') as f:
         config = yaml.safe_load(f)
 
-    # Data Module
-    data_module = LitDataModule(
-        config=config['data'].copy(),
-        batch_size=config['training']['batch_size'],
-        num_workers=config['training'].get('num_workers', 0)
-    )
-    train_loader = data_module.train_dataloader()
-    val_loader = data_module.val_dataloader()
-    if args.inference:
-        test_loader = data_module.test_dataloader() 
-
     # Define loss and optimizer
     loss_name = config['training']['loss_type']
     if loss_name == 'mse':
@@ -114,8 +103,22 @@ if __name__ == "__main__":
     elif loss_name == 'nll':
         criterion = BernoulliGammaLoss()
         out_ch = 3  # ocurrence, shape_parameter, scale_parameter
+        # check if target_normalize is None in config
+        if config['data']['common_kwargs']['target_normalize'] is not None:
+            raise ValueError("Target normalisation is not suitable when using NLL loss.")
     else:
         raise NotImplementedError(f"Loss type {loss_name} not implemented")
+    
+    # Data Module
+    data_module = LitDataModule(
+        config=config['data'].copy(),
+        batch_size=config['training']['batch_size'],
+        num_workers=config['training'].get('num_workers', 0)
+    )
+    train_loader = data_module.train_dataloader()
+    val_loader = data_module.val_dataloader()
+    if args.inference:
+        test_loader = data_module.test_dataloader() 
 
     # Build model
     model_name = args.model
