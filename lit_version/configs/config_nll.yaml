@@ -1,6 +1,6 @@
 training:
   learning_rate: 0.001
-  epochs: 2
+  epochs: 3
   batch_size: 128
   loss_type: "nll" # options: "mse", "mae", "nll"
   weights_dir: "weights/"
@@ -28,10 +28,10 @@ data:
       # input: "/home/mohammad.elaabaribao/lustre/climat-um6p-st-iwri-7ksifkvwkuy/shared/TEAM/data/era5/all_Mor/merged_levels/*.nc"
       # target: "/home/mohammad.elaabaribao/lustre/climat-um6p-st-iwri-7ksifkvwkuy/shared/TEAM/data/mswep/all_Mor/mswep_1979_2020.nc"
       input: "data/predictors/er5_*.nc"
-      target: "data/predictands/MSWP_1979_2014.nc"      
+      target: "data/predictands/MSWP_1979_2014.nc"
     input_ds_name: "ERA5"
     target_ds_name: "MSWP"
-    input_normalize: null # options: "per_channel", "per_day", "global", null
+    input_normalize: "per_channel" # options: "per_channel", "per_day", "global", null
     target_normalize: null # options: "global" or null
     log_transform: false
     stats_path: "data_stats/"

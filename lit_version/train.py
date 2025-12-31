@@ -31,11 +31,8 @@ def inference(model_module, data_loader=None, train_loader=None, output_dir='res
             y_true = y.to(device)
             y_pred = model_module(x)
             if is_nll:
-                ocurrence = torch.sigmoid(y_pred[:, 0, :, :])
-                shape_parameter = torch.exp(y_pred[:, 1, :, :])
-                scale_parameter = torch.exp(y_pred[:, 2, :, :])
                 # Expected value of Bernoulli-Gamma
-                y_pred = ocurrence * (shape_parameter * scale_parameter)
+                y_pred = y_pred[:, 0:1, :, :] * y_pred[:, 1:2, :, :] * y_pred[:, 2:3, :, :]
             # Denormalize if needed (inludes inverse log-transform)
             y_pred_denorm = train_loader.dataset.denormalize(y_pred, data_type="y")
             y_true_denorm = train_loader.dataset.denormalize(y_true, data_type="y")
@@ -148,7 +145,11 @@ if __name__ == "__main__":
     )
     # Setup logging and checkpointing
     exp_name = args.config.replace('.yaml', '') + f"_{args.model}"
-    logger = TensorBoardLogger(save_dir="logs", name=exp_name)
+    if not args.resume and not args.inference:
+        if not os.path.exists(f"logs/{exp_name}"):
+            print(f"Removing existing log directory logs/{exp_name}")
+            os.system(f"rm -rf logs/{exp_name}")            
+    logger = TensorBoardLogger(save_dir="logs", name=exp_name, version="")
     # if not inference or resume remove existing logs
     if not args.inference and not args.resume:
         log_dir = os.path.join("logs", exp_name)
@@ -209,6 +210,7 @@ if __name__ == "__main__":
             devices='auto',
             accelerator='auto',
             precision='16-mixed', # '16' or '32'
+            accumulate_grad_batches=config['training'].get('accumulate_grad_batches', 1),
         )
 
         # Start training

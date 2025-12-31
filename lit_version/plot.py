@@ -10,8 +10,23 @@ import xarray as xr
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import cartopy.crs as ccrs
-import regionmask
+try:
+    import regionmask
+except ImportError:
+    pass
 
+COLORS = [
+        (1.0, 1.0, 1.0),
+        (0.8, 0.9, 1.0),
+        (0.2, 0.4, 0.8),
+        (0.1, 0.2, 0.5),
+        (0.0, 0.5, 0.0),
+        (0.3, 0.7, 0.3),
+        (0.6, 0.9, 0.4),
+        (1.0, 1.0, 0.3),
+        (1.0, 0.7, 0.0),
+        (1.0, 0.0, 0.0),
+    ]
 # ----------------------------------------------------------
 # Utility print (verbose)
 # ----------------------------------------------------------
@@ -80,18 +95,7 @@ def spatial_comparaison_plot(
 
     # Colormap
     levels = np.linspace(0, 5, 11)
-    colors = [
-        (1.0, 1.0, 1.0),
-        (0.8, 0.9, 1.0),
-        (0.2, 0.4, 0.8),
-        (0.1, 0.2, 0.5),
-        (0.0, 0.5, 0.0),
-        (0.3, 0.7, 0.3),
-        (0.6, 0.9, 0.4),
-        (1.0, 1.0, 0.3),
-        (1.0, 0.7, 0.0),
-        (1.0, 0.0, 0.0),
-    ]
+    colors = COLORS
 
     cmap = mcolors.ListedColormap(colors)
     norm = mcolors.BoundaryNorm(levels, cmap.N)
@@ -143,6 +147,70 @@ def spatial_comparaison_plot(
     plt.close()
 
     vprint(f"  ✔ Spatial plot saved: {filename}")
+
+
+# ==========================================================
+# High-Resolution Prediction vs Target Plot
+# ==========================================================
+def spatial_comparison_per_epoch(
+    y_true_data,
+    y_pred_data,
+    vmin=None,
+    vmax=None,
+    extent=None,
+):
+    # Remove negative values
+    y_true_data[y_true_data < 0] = 0
+    y_pred_data[y_pred_data < 0] = 0
+
+    # Compute statistics
+    true_min, true_max, true_mean = y_true_data.min(), y_true_data.max(), y_true_data.mean()
+    pred_min, pred_max, pred_mean = y_pred_data.min(), y_pred_data.max(), y_pred_data.mean()
+
+    # Set colorbar range
+    vmin = true_min if vmin is None else vmin
+    vmax = true_max if vmax is None else vmax
+
+    # Use precipitation colormap
+    levels = np.linspace(vmin, vmax, 11)
+    cmap = mcolors.ListedColormap(COLORS)
+    norm = mcolors.BoundaryNorm(levels, cmap.N)
+
+    # Create figure
+    fig, axs = plt.subplots(
+        1, 2, figsize=(11, 5), subplot_kw=dict(projection=ccrs.PlateCarree())
+    )
+
+    for i, (data, title, stats) in enumerate([
+        (y_true_data, "Ground Truth High-Res", (true_min, true_max, true_mean)),
+        (y_pred_data, "Predicted High-Res", (pred_min, pred_max, pred_mean)),
+    ]):
+        img = axs[i].imshow(
+            data,
+            cmap=cmap,
+            norm=norm,
+            extent=extent,
+            transform=ccrs.PlateCarree(),
+        )
+        axs[i].coastlines()
+        axs[i].set_extent(extent)
+        axs[i].set_title(
+            f"{title}\n"
+            f"Max={stats[1]:.2f}, Min={stats[0]:.2f}, Mean={stats[2]:.2f}"
+        )
+
+    fig.suptitle(
+        "High-Resolution Precipitation Comparison (mm/day)",
+        fontsize=14,
+        weight="bold",
+    )
+
+    cbar = plt.colorbar(img, ax=axs, shrink=0.8, pad=0.08)
+    cbar.set_label("Precipitation (mm/day)")
+
+    plt.close()
+
+    return fig
 
 
 # ==========================================================
