@@ -29,8 +29,8 @@ data:
       target: "/home/mohammad.elaabaribao/lustre/climat-um6p-st-iwri-7ksifkvwkuy/shared/TEAM/data/mswep/all_Mor/mswep_1979_2020.nc"
     input_ds_name: "ERA5"
     target_ds_name: "MSWP"
-    input_normalize: "per_channel" # options: "per_channel", "per_day", "global", null
-    target_normalize: "global" # options: "global" or null
+    input_normalize: null # options: "per_channel", "per_day", "global", null
+    target_normalize: null # options: "global" or null
     log_transform: false
     stats_path: "data_stats/"
     return_date: false
