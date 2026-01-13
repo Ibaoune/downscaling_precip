@@ -1,0 +1,51 @@
+training:
+  learning_rate: 0.001
+  epochs: 100
+  batch_size: 256
+  num_workers: 2
+  loss_type: "nll" # options: "mse", "mae", "nll"
+  weights_dir: "weights/"
+  eval_out_dir: "results/evaluation/"
+  accumulate_grad_batches: 1
+
+data:
+  train:
+    mode: "train"
+    start_date: "1979-01-01"
+    end_date: "2003-12-31"
+  val:
+    mode: "val"
+    start_date: "2004-01-01"
+    end_date: "2005-12-31"
+  test:
+    mode: "test"
+    start_date: "2006-01-01"
+    end_date: "2020-12-31"
+    return_date: true
+  common_kwargs:
+    variables: ["z", "q", "u", "v", "t"]
+    levels: [1000, 850, 700, 500]
+    extent: [-10, 0, 29, 36]
+    data_path:
+      # input: "/home/mohammad.elaabaribao/lustre/climat-um6p-st-iwri-7ksifkvwkuy/shared/TEAM/data/era5/all_Mor/merged_levels/*.nc"
+      # target: "/home/mohammad.elaabaribao/lustre/climat-um6p-st-iwri-7ksifkvwkuy/shared/TEAM/data/mswep/all_Mor/mswep_1979_2020.nc"
+      input: "data/era5_*_levels.nc"
+      target: "data/mswep_1979_2020.nc"
+    input_ds_name: "ERA5"
+    target_ds_name: "MSWP"
+    input_normalize: null # options: "per_channel", "per_day", "global", null
+    target_normalize: null # options: "global" or null
+    log_transform: false
+    stats_path: "data_stats/"
+    return_date: false
+
+models:
+  vit:
+    emb_size: 128
+    patch_size: 4
+    num_layers: 4
+    num_heads: 4
+    dropout: 0.1
+  unet:
+    init_features: 32
+    dropout: 0.1

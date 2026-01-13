@@ -1,12 +1,12 @@
 vit/results/
 lit_version/data
-lit_version/weights
 lit_version/logs
-lit_version/data_stats*
+lit_version/data_stats
 lit_version/results
 lit_version/check_ncFiles_structure.py
 lit_version/figures/
 lit_version/*.sh
 lit_version/merge.py
+lit_version/slurm
 */*.log
 

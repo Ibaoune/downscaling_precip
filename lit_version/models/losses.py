@@ -25,17 +25,17 @@ class BernoulliGammaLoss(nn.Module):
                 "Some target values are negative, check if any normalisation is applied"
                 f"min={y.min()}, max={y.max()}", UserWarning)
         #  Runtime checks with warnings
-        if torch.any((pi <= 0) | (pi >= 1)):
+        if torch.any((pi < 0) | (pi > 1)):
             warnings.warn(
                 "Some pi values are outside (0,1). They will be clamped."
                 f"min={pi.detach().min().item()}, max={pi.detach().max().item()}", UserWarning)
             pi = torch.clamp(pi, 1e-6, 1 - self.eps)
-        if torch.any(alpha <= 0):
+        if torch.any(alpha < 0):
             warnings.warn(
                 "Some alpha values are <= 0. They will be clamped."
                 f"min={alpha.detach().min().item()}, max={alpha.detach().max().item()}", UserWarning)
             alpha = torch.clamp(alpha, 0, None)
-        if torch.any(beta <= 1e-6):
+        if torch.any(beta < 1e-6):
             warnings.warn(
                 f"Some beta values are <= {1e-6}. They will be clamped."
                 f"min={beta.detach().min().item()}, max={beta.detach().max().item()}", UserWarning)

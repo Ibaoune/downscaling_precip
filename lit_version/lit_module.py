@@ -29,7 +29,7 @@ class LitDataModule(pl.LightningDataModule):
             self.train_ds = DownscalingDataset(**kwargs)
         return DataLoader(
             self.train_ds, batch_size=self.batch_size,
-            shuffle=True, num_workers=self.num_workers,
+            shuffle=True, num_workers=self.num_workers, prefetch_factor=2,
         )
 
     def val_dataloader(self):
@@ -60,27 +60,36 @@ class LitModule(pl.LightningModule):
         self.optimizer = optimizer
         self.learning_rate = learning_rate
 
-    def forward(self, x):
-        return self.model(x)
+    def forward(self, x, forcings):
+        return self.model(x, forcings)
     
     def training_step(self, batch, batch_idx):
-        x, y = batch
-        y_hat = self(x)
+        x, y, forcings = batch
+
+        y_hat = self(x, forcings)
         loss = self.criterion(y_hat.squeeze(1), y)
+        # check for NaN loss
+        if torch.isnan(loss):
+            print("NaN loss encountered, skipping step")
+            return None        
+        #loss = torch.nan_to_num(loss, nan=0.0, posinf=0.0, neginf=0.0)        
         self.log('train_loss', loss, prog_bar=True, on_epoch=True)
         return loss
     
     def validation_step(self, batch, batch_idx):
-        x, y = batch
-        y_hat = self(x)
+        x, y, forcings = batch
+        y_hat = self(x, forcings)
         loss = self.criterion(y_hat.squeeze(1), y)
+        if torch.isnan(loss):
+            print("NaN loss encountered in validation.")
+            return None
         self.log('val_loss', loss, prog_bar=True, on_epoch=True)
         # add metrics here if needed
         return loss
 
     def test_step(self, batch, batch_idx):
-        x, y = batch
-        y_hat = self(x)
+        x, y, forcings = batch
+        y_hat = self(x, forcings)
         loss = self.criterion(y_hat.squeeze(1), y)
         self.log('test_loss', loss)
         # add metrics here if needed
@@ -93,18 +102,20 @@ class LitModule(pl.LightningModule):
             return
         # plot one example from the validation set
         sample_batch = next(iter(self.trainer.val_dataloaders))
-        x, y_true = sample_batch
-        y_hat = self(x.to(self.device))
+        x, y_true, forcings = sample_batch
+        y_hat = self(x.to(self.device), forcings.to(self.device))
         if isinstance(self.criterion, BernoulliGammaLoss):
             # Expected value of Bernoulli-Gamma
             y_hat = y_hat[:, 0:1, :, :] * y_hat[:, 1:2, :, :] * y_hat[:, 2:3, :, :]
         
         y_pred_denorm = self.trainer.train_dataloader.dataset.denormalize(y_hat, data_type="y")
         y_true_denorm = self.trainer.train_dataloader.dataset.denormalize(y_true, data_type="y")
-        
+        # get index of sample with the highest median value
+        median_vals = torch.median(y_true_denorm.view(y_true_denorm.size(0), -1), dim=1).values
+        b_idx = torch.argmax(median_vals).item()
         fig = spatial_comparison_per_epoch(
-            y_true_denorm[0].cpu().numpy(),
-            y_pred_denorm[0, 0].cpu().numpy(),
+            y_true_denorm[b_idx].cpu().numpy(),
+            y_pred_denorm[b_idx, 0].cpu().numpy(),
             extent=self.trainer.train_dataloader.dataset.extent,
         )
         # log figure to tensorboard
@@ -117,8 +128,8 @@ class LitModule(pl.LightningModule):
         val_loader = self.trainer.val_dataloaders
         all_y_true, all_y_pred = [], []
         for batch in val_loader:
-            x, y = batch
-            y_hat = self(x.to(self.device))
+            x, y, forcings = batch
+            y_hat = self(x.to(self.device), forcings.to(self.device))
             if isinstance(self.criterion, BernoulliGammaLoss):
                 # Expected value of Bernoulli-Gamma
                 y_hat = y_hat[:, 0:1, :, :] * y_hat[:, 1:2, :, :] * y_hat[:, 2:3, :, :]

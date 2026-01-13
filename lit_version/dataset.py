@@ -6,6 +6,7 @@ import xarray as xr
 import numpy as np
 import matplotlib.pyplot as plt
 import yaml
+import pandas as pd
 
 class DownscalingDataset(Dataset):
     def __init__(
@@ -80,7 +81,14 @@ class DownscalingDataset(Dataset):
         # select variables
         x_data = ds[variables]
         # check time frequency, should be daily
-        freq = xr.infer_freq(x_data.time.to_index())
+        try:
+            freq = xr.infer_freq(x_data.time.to_index())
+        except ValueError:
+            print("Could not infer time frequency, trying with first 100 timestamps.")
+            freq = xr.infer_freq(x_data.time[:100].to_index())
+            if freq is None:
+                print("Still could not infer frequency, assuming daily frequency.")
+                freq = 'D'
         if freq != 'D':
             if not freq.endswith('h'):
                 raise ValueError(f"Input data time frequency is {freq}, expected 'D'")
@@ -176,11 +184,12 @@ class DownscalingDataset(Dataset):
         return ds
     
     def _compute_stats(self, ds, data_type="x", normalization=None, ds_name=None):
+        if normalization is None or normalization == "per_day":
+            return None, None
+        
         suffix = "_log" if self.log_transform and data_type == "y" else ""
         stats_file = os.path.join(self.stats_path, 
                                   f"{data_type}_stats_{normalization}_{ds_name}{suffix}.npz")
-        if normalization is None:
-            return 0, 1
         if self.mode == "train":
             if normalization == "per_channel":
                 # stats per var and level 
@@ -191,7 +200,12 @@ class DownscalingDataset(Dataset):
                     [ds[var].std(dim=("time", "lat", "lon")).values for var in ds.data_vars], 
                     axis=0)[:, np.newaxis, np.newaxis]
             elif normalization == "global":
-                mean_ds, std_ds = ds.mean().values, ds.std().values
+                if data_type == "x":
+                    mean_ds = np.mean([ds[var].mean().values for var in ds.data_vars])
+                    std_ds = np.mean([ds[var].std().values for var in ds.data_vars])
+                else:
+                    mean_ds = ds.mean().values
+                    std_ds = ds.std().values
             else:
                 raise ValueError(f"Unknown normalization type: {normalization}")
             # save stats as npy
@@ -222,8 +236,12 @@ class DownscalingDataset(Dataset):
             mean = torch.from_numpy(mean).float()
         if isinstance(std, np.ndarray):
             std = torch.from_numpy(std).float()
-
-        denorm_data = data * (std + 1e-8) + mean
+        if data_type == "x" and self.input_normalize is None:
+            denorm_data = data
+        elif data_type == "y" and self.target_normalize is None:
+            denorm_data = data
+        else:
+            denorm_data = data * (std + 1e-8) + mean
         # inverse log transform if applied
         if self.log_transform and data_type == "y":
             denorm_data = torch.expm1(denorm_data)
@@ -235,28 +253,35 @@ class DownscalingDataset(Dataset):
 
     def __getitem__(self, idx):
         # get input data
+        date = self.time[idx]
+        dayofyear = pd.to_datetime(date).dayofyear
         x_data_idx = self.x_data.isel(time=idx)
         # Stack variables into a single array: (variable x level, lat, lon)
         x_arr = np.concatenate(
             [x_data_idx[var].values for var in x_data_idx.data_vars], 
             axis=0)
-        x = torch.from_numpy(x_arr)
-        
+        x = torch.from_numpy(x_arr)        
         y = torch.from_numpy(self.y_data.isel(time=idx).values)
 
-        if self.input_normalize == "per_day":
-            # per day per channel normalization
-            mean = x.mean(dim=(1,2), keepdim=True)
-            std  = x.std(dim=(1,2), keepdim=True)
-            x = (x - mean) / (std + 1e-8)
-        else:
-            x = (x - self.x_mean) / (self.x_std + 1e-8)
-        
-        y = (y - self.y_mean) / (self.y_std + 1e-8)
+        if self.input_normalize is not None:
+            if self.input_normalize == "per_day":
+                # per day per channel normalization
+                mean = x.mean(dim=(1,2), keepdim=True)
+                std  = x.std(dim=(1,2), keepdim=True)
+                x = (x - mean) / (std + 1e-8)
+            else:
+                x = (x - self.x_mean) / (self.x_std + 1e-8)
+
+        if self.target_normalize is not None:
+            y = (y - self.y_mean) / (self.y_std + 1e-8)
         x, y, = x.float(), y.float()
+        # seasonal forcing
+        cosin_time = np.cos(2 * np.pi * dayofyear / 365)
+        sin_time = np.sin(2 * np.pi * dayofyear / 365)
+        seasonal_forcing = torch.tensor([cosin_time, sin_time], dtype=torch.float32)
         if self.return_date:
-            return x, y, str(self.time[idx])
-        return x, y
+            return x, y, seasonal_forcing, str(date)
+        return x, y, seasonal_forcing
 
 def rename_valid_time(ds):
     if "valid_time" in ds.dims:
@@ -268,14 +293,14 @@ def rename_valid_time(ds):
 if __name__ == "__main__":
     # Example usage
     mode = "train"
-    with open('configs/config_1.yaml', 'r') as f:        
+    with open('configs/config_nll_global_x.yaml', 'r') as f:        
         config = yaml.safe_load(f)
     kwargs = config['data']['common_kwargs']
     kwargs.update(config['data'][mode])
     dataset = DownscalingDataset(**kwargs)
 
     print(f"Dataset length: {len(dataset)}")
-    x, y = dataset[10]
+    x, y, _ = dataset[10]
     print(f"Input shape: {x.shape}, Target shape: {y.shape}")
     # plot 
     plt.subplot(1, 2, 1)

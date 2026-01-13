@@ -26,10 +26,10 @@ def inference(model_module, data_loader=None, train_loader=None, output_dir='res
         all_dates = []
 
         for batch in data_loader:
-            x, y, date = batch
+            x, y, forcings, date = batch
             x = x.to(device)
             y_true = y.to(device)
-            y_pred = model_module(x)
+            y_pred = model_module(x, forcings.to(device))
             if is_nll:
                 # Expected value of Bernoulli-Gamma
                 y_pred = y_pred[:, 0:1, :, :] * y_pred[:, 1:2, :, :] * y_pred[:, 2:3, :, :]
@@ -74,9 +74,6 @@ def inference(model_module, data_loader=None, train_loader=None, output_dir='res
         ds_true.to_netcdf(output_true_path)#, encoding={'complevel': 5})
         print(f"Saved ground truth to {output_true_path}")
             
-
-
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a downscaling model using PyTorch Lightning")
@@ -148,17 +145,14 @@ if __name__ == "__main__":
     )
     # Setup logging and checkpointing
     exp_name = args.config.replace('.yaml', '') + f"_{args.model}"
-    if not args.resume and not args.inference:
-        if not os.path.exists(f"logs/{exp_name}"):
-            print(f"Removing existing log directory logs/{exp_name}")
-            os.system(f"rm -rf logs/{exp_name}")            
-    logger = TensorBoardLogger(save_dir="logs", name=exp_name, version="")
     # if not inference or resume remove existing logs
     if not args.inference and not args.resume:
         log_dir = os.path.join("logs", exp_name)
         if os.path.exists(log_dir):
             import shutil
+            print(f"Removing existing log directory {log_dir}")
             shutil.rmtree(log_dir)
+    logger = TensorBoardLogger(save_dir="logs", name=exp_name, version="")
     logger.log_hyperparams(config)
 
     weights_path = os.path.join(config['training'].get('weights_dir', 'checkpoints/'), exp_name)
@@ -202,17 +196,20 @@ if __name__ == "__main__":
         if not args.resume:
             # remove ckpt files if exist
             if os.path.exists(last_checkpoint_path):
+                print(f"Removing existing checkpoint {last_checkpoint_path}")
                 os.remove(last_checkpoint_path)
             if os.path.exists(best_checkpoint_path):
+                print(f"Removing existing checkpoint {best_checkpoint_path}")
                 os.remove(best_checkpoint_path)
         # Initialize trainer
         trainer = pl.Trainer(
             max_epochs=config['training']['epochs'],
             callbacks=[checkpoint_callback], # add more callbacks to the list if needed
             logger=logger,
+            log_every_n_steps=1,
             devices='auto',
             accelerator='auto',
-            precision='16-mixed', # '16' or '32'
+            #precision='16-mixed', # '16' or '32'
             accumulate_grad_batches=config['training'].get('accumulate_grad_batches', 1),
         )
 
