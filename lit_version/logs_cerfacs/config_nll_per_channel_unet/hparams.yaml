@@ -1,0 +1,60 @@
+data:
+  common_kwargs:
+    data_path:
+      input: data/era5_*_levels.nc
+      target: data/mswep_1979_2020.nc
+    extent:
+    - -10
+    - 0
+    - 29
+    - 36
+    input_ds_name: ERA5
+    input_normalize: per_channel
+    levels:
+    - 1000
+    - 850
+    - 700
+    - 500
+    log_transform: false
+    return_date: false
+    stats_path: data_stats/
+    target_ds_name: MSWP
+    target_normalize: null
+    variables:
+    - z
+    - q
+    - u
+    - v
+    - t
+  test:
+    end_date: '2020-12-31'
+    mode: test
+    return_date: true
+    start_date: '2006-01-01'
+  train:
+    end_date: '2003-12-31'
+    mode: train
+    start_date: '1979-01-01'
+  val:
+    end_date: '2005-12-31'
+    mode: val
+    start_date: '2004-01-01'
+models:
+  unet:
+    dropout: 0.1
+    init_features: 32
+  vit:
+    dropout: 0.1
+    emb_size: 128
+    num_heads: 4
+    num_layers: 4
+    patch_size: 4
+training:
+  accumulate_grad_batches: 1
+  batch_size: 256
+  epochs: 100
+  eval_out_dir: results/evaluation/
+  learning_rate: 0.001
+  loss_type: nll
+  num_workers: 2
+  weights_dir: weights/
